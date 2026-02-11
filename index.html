@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuwait Furniture Finder</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🇰🇼 Kuwait Furniture Finder</h1>
+            <p class="subtitle">Upload a room photo, find furniture matches in Kuwait stores</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="search">🔍 Search</button>
+            <button class="tab-btn" data-tab="history">📚 History</button>
+        </div>
+
+        <div id="search-tab" class="tab-content active">
+            <div class="upload-section">
+                <input type="file" id="file-input" accept="image/*" style="display: none;">
+                <div id="upload-box" class="upload-box">
+                    <div class="upload-prompt">
+                        <div class="upload-icon">📤</div>
+                        <p class="upload-text">Click to upload room image</p>
+                        <p class="upload-hint">Supports: JPG, PNG, WEBP (Max 10MB)</p>
+                    </div>
+                    <img id="image-preview" class="image-preview hidden" alt="Preview">
+                </div>
+                <button id="analyze-btn" class="btn btn-primary" disabled>🔍 Analyze Room</button>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p id="loading-text">Analyzing image...</p>
+            </div>
+
+            <div id="results-section" class="results-section hidden">
+                <div class="results-header">
+                    <h2>Detected Items & Matches</h2>
+                    <button id="save-session-btn" class="btn btn-secondary">💾 Save This Session</button>
+                </div>
+                <div id="results-container"></div>
+            </div>
+        </div>
+
+        <div id="history-tab" class="tab-content">
+            <div class="history-header">
+                <h2>Previous Searches</h2>
+                <button id="refresh-history-btn" class="btn btn-secondary">🔄 Refresh</button>
+            </div>
+            <div id="history-container" class="history-container"></div>
+            <div id="history-empty" class="history-empty">
+                <p>📭 No saved sessions yet</p>
+                <p class="hint">Upload and analyze a room to get started</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
