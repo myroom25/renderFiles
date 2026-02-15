@@ -1,113 +1,166 @@
+require('dotenv').config();
 const axios = require('axios');
 
-const BRIGHTDATA_API_KEY = process.env.BRIGHTDATA_API_KEY;
-const BRIGHTDATA_ZONE = process.env.BRIGHTDATA_ZONE || 'serp_api1';
+const BRIGHTDATA_TOKEN = process.env.BRIGHTDATA_TOKEN || '8b5761c8-dc4e-4176-a1cf-c1a22fcb23d0';
+const BRIGHTDATA_ZONE = process.env.BRIGHTDATA_ZONE || 'kuwait_furniture_finder';
+
+const TIMEOUT = 90000;
+const MAX_RETRIES = 3;
 
 async function searchGoogle(query) {
-  try {
-    console.log(`🔍 Searching: "${query}"`);
-    
-    const response = await axios.post(
-      'https://api.brightdata.com/request',
-      {
-        zone: BRIGHTDATA_ZONE,
-        url: `https://www.google.com/search?q=${encodeURIComponent(query)}&gl=kw&hl=en`,
-        format: 'json'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${BRIGHTDATA_API_KEY}`,
-          'Content-Type': 'application/json'
+  console.log(`🔍 Searching: "${query}"`);
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.post(
+        'https://api.brightdata.com/request',
+        {
+          zone: BRIGHTDATA_ZONE,
+          url: `https://www.google.com.kw/search?q=${encodeURIComponent(query)}&gl=KW&hl=en&num=20`,
+          format: 'json'
         },
-        timeout: 45000  // Increased from 30s to 45s
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${BRIGHTDATA_TOKEN}`
+          },
+          timeout: TIMEOUT
+        }
+      );
+      
+      let data = response.data;
+      
+      // ⭐ FIX: Extract body if wrapped
+      if (data.body) {
+        console.log(`   📦 Unwrapping body field...`);
+        
+        // Body might be string (HTML) or JSON
+        if (typeof data.body === 'string') {
+          try {
+            data = JSON.parse(data.body);
+            console.log(`   ✅ Parsed body as JSON`);
+          } catch {
+            // Body is HTML string
+            console.log(`   ⚠️ Body is HTML, parsing...`);
+            const results = parseGoogleHTML(data.body);
+            console.log(`   ✅ Found ${results.length} results (HTML)`);
+            return results;
+          }
+        } else {
+          data = data.body;
+        }
       }
-    );
-
-    let jsonData;
-    if (typeof response.data.body === 'string') {
-      jsonData = JSON.parse(response.data.body);
-    } else if (typeof response.data.body === 'object') {
-      jsonData = response.data.body;
-    } else {
-      jsonData = response.data;
+      
+      // Try to extract from JSON
+      const results = extractFromJSON(data);
+      console.log(`   ✅ Found ${results.length} results (JSON)`);
+      return results;
+      
+    } catch (error) {
+      const errorMsg = error.response?.status 
+        ? `${error.response.status} ${error.response.statusText}`
+        : error.code === 'ECONNABORTED' 
+        ? 'Timeout' 
+        : error.message;
+      
+      console.log(`   ❌ Error (attempt ${attempt}/${MAX_RETRIES}): ${errorMsg}`);
+      
+      if (attempt < MAX_RETRIES) {
+        await sleep(3000);
+        continue;
+      }
+      
+      return [];
     }
-
-    const results = parseBrightDataJSON(jsonData, query);
-    console.log(`   ✅ Found ${results.length} results`);
-    
-    return results;
-
-  } catch (error) {
-    if (error.code === 'ECONNABORTED') {
-      console.error(`   ⏱️ Timeout - skipping this query`);
-    } else {
-      console.error(`   ❌ Error:`, error.message);
-    }
-    return [];
   }
+  
+  return [];
 }
 
-function parseBrightDataJSON(data, query) {
+function extractFromJSON(data) {
   const results = [];
   
-  try {
-    // BrightData returns results in "organic" array (confirmed from logs)
-    let items = [];
-    
-    if (data.organic && Array.isArray(data.organic)) {
-      items = data.organic;
-    } else if (data.organic_results && Array.isArray(data.organic_results)) {
-      items = data.organic_results;
-    } else if (data.results && Array.isArray(data.results)) {
-      items = data.results;
-    }
-    
-    items.forEach(item => {
-      const title = item.title || item.name || '';
-      const link = item.url || item.link || item.href || '';
-      const snippet = item.snippet || item.description || item.text || '';
-      
-      if (title && link && link.startsWith('http')) {
+  if (data.organic && Array.isArray(data.organic)) {
+    data.organic.forEach(item => {
+      if (item.link && item.title) {
         results.push({
-          title: title,
-          link: link,
-          snippet: snippet,
-          query: query
+          title: item.title,
+          link: item.link,
+          snippet: item.snippet || item.description || ''
         });
       }
     });
-    
-  } catch (parseError) {
-    console.error('   ⚠️ Parse error:', parseError.message);
+  }
+  
+  if (data.results && Array.isArray(data.results)) {
+    data.results.forEach(item => {
+      if (item.url && item.title) {
+        results.push({
+          title: item.title,
+          link: item.url,
+          snippet: item.snippet || item.description || ''
+        });
+      }
+    });
+  }
+  
+  if (Array.isArray(data)) {
+    data.forEach(item => {
+      if (item.link && item.title) {
+        results.push({
+          title: item.title,
+          link: item.link,
+          snippet: item.snippet || ''
+        });
+      }
+    });
   }
   
   return results;
 }
 
-async function fetchProductPage(url) {
-  try {
-    const response = await axios.post(
-      'https://api.brightdata.com/request',
-      {
-        zone: BRIGHTDATA_ZONE,
-        url: url,
-        format: 'json'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${BRIGHTDATA_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 20000
-      }
-    );
-    return response.data.body || response.data;
-  } catch (error) {
-    return null;
+function parseGoogleHTML(html) {
+  const results = [];
+  
+  // Extract search results from Google HTML
+  const titlePattern = /<h3[^>]*class="[^"]*LC20lb[^"]*"[^>]*>(.*?)<\/h3>/g;
+  const linkPattern = /<a[^>]*href="([^"]+)"[^>]*><h3/g;
+  
+  const titles = [];
+  const links = [];
+  
+  let match;
+  while ((match = titlePattern.exec(html)) !== null) {
+    const title = match[1].replace(/<[^>]*>/g, '').trim();
+    if (title) titles.push(title);
   }
+  
+  html = html.replace(/&amp;/g, '&');
+  while ((match = linkPattern.exec(html)) !== null) {
+    let link = match[1];
+    if (link.startsWith('/url?q=')) {
+      link = link.substring(7).split('&')[0];
+      link = decodeURIComponent(link);
+    }
+    if (link.startsWith('http') && !link.includes('google.com')) {
+      links.push(link);
+    }
+  }
+  
+  const count = Math.min(titles.length, links.length, 20);
+  for (let i = 0; i < count; i++) {
+    results.push({
+      title: titles[i],
+      link: links[i],
+      snippet: ''
+    });
+  }
+  
+  return results;
 }
 
-module.exports = {
-  searchGoogle,
-  fetchProductPage
-};
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+module.exports = { searchGoogle };
